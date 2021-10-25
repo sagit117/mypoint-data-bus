@@ -16,7 +16,7 @@ import ru.mypoint.databus.webserver.dto.RequestWebServer
 fun Application.webServerModule() {
     val client = HttpClient(CIO) {
         defaultRequest { // this: HttpRequestBuilder ->
-            host = environment.config.propertyOrNull("dbservices.host")?.getString() ?: "http://127.0.0.1"
+            host = environment.config.propertyOrNull("dbservices.host")?.getString() ?: "127.0.0.1"
             port = environment.config.propertyOrNull("dbservices.port")?.getString()?.toInt() ?: 8081
         }
     }
@@ -31,7 +31,7 @@ fun Application.webServerModule() {
                 val request = call.receive<RequestWebServer>()
 
                 if (request.method === MethodsRequest.GET) {
-                    val result = client.get<String> {
+                    val result = client.get<Any> {
                         url {
                             encodedPath = request.dbUrl
                         }
@@ -40,7 +40,19 @@ fun Application.webServerModule() {
                     call.respond(HttpStatusCode.OK, result)
                 }
 
-                println(request)
+                if (request.method === MethodsRequest.POST) {
+                    val result = client.post<String> {
+                        url {
+                            encodedPath = request.dbUrl
+                        }
+
+                        contentType(ContentType.Application.Json)
+
+                        body = request.body ?: ""
+                    }
+
+                    call.respond(HttpStatusCode.OK, result)
+                }
             }
         }
     }
