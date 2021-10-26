@@ -30,28 +30,35 @@ fun Application.webServerModule() {
             post("/dbservice/request") {
                 val request = call.receive<RequestWebServer>()
 
-                if (request.method === MethodsRequest.GET) {
-                    val result = client.get<Any> {
-                        url {
-                            encodedPath = request.dbUrl
+                /** TODO блок auth */
+
+                val result = try {
+                    if (request.method === MethodsRequest.GET) {
+                        client.get<Any> {
+                            url {
+                                encodedPath = request.dbUrl
+                            }
+                        }
+                    } else { // (request.method === MethodsRequest.POST) {
+                        client.post<String> {
+                            url {
+                                encodedPath = request.dbUrl
+                            }
+
+                            contentType(ContentType.Application.Json)
+
+                            body = request.body ?: ""
                         }
                     }
-
-                    call.respond(HttpStatusCode.OK, result)
+                } catch (error: Exception) {
+                    println(error.toString())
+                    null
                 }
 
-                if (request.method === MethodsRequest.POST) {
-                    val result = client.post<String> {
-                        url {
-                            encodedPath = request.dbUrl
-                        }
-
-                        contentType(ContentType.Application.Json)
-
-                        body = request.body ?: ""
-                    }
-
+                if (result != null) {
                     call.respond(HttpStatusCode.OK, result)
+                } else {
+                    call.respond(HttpStatusCode.BadRequest)
                 }
             }
         }
