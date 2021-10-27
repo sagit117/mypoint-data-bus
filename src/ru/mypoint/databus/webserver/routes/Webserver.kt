@@ -51,7 +51,7 @@ fun Application.webServerModule() {
                         }
                     }
                 } catch (error: Exception) {
-                    println(error.toString())
+                    // todo: сделать обработку ошибки
                     null
                 }
 
