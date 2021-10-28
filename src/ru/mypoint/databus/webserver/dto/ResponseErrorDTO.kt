@@ -2,9 +2,13 @@ package ru.mypoint.databus.webserver.dto
 
 data class ResponseDTO(val status: String)
 
+/**
+ * Класс для ответа на запрос webserver
+ */
 enum class ResponseStatus(val value: String) {
     OK("OK"),
-    NoValidate("data is not validated"),
-    Conflict("the data already exists"),
-    InternalServerError("internal Server Error")
+    NoValidate("Data Is Not Validated"),
+    Conflict("The Data Already Exists"),
+    InternalServerError("Internal Server Error"),
+    ServiceUnavailable("Service Unavailable"),
 }
