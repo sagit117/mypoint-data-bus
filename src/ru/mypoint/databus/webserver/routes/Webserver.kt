@@ -13,6 +13,9 @@ import io.ktor.routing.*
 import io.ktor.util.*
 import ru.mypoint.databus.webserver.dto.*
 import java.net.ConnectException
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
+import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
 fun Application.webServerModule() {
@@ -114,8 +117,16 @@ fun Application.webServerModule() {
                 }
 
                 if (result != null) {
-                    // todo: JWT
-                    call.respond(HttpStatusCode.OK, result)
+                    // JWT
+                    val secret = environment.config.property("jwt.secret").getString()
+
+                    val jwt = JWT.create()
+                        .withClaim("user", result)
+                        .withExpiresAt(Date(System.currentTimeMillis() + 2592000000)) // 30 days
+                        .sign(Algorithm.HMAC256(secret))
+
+
+                    call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
