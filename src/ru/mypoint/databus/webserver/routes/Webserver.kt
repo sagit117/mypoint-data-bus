@@ -1,5 +1,6 @@
 package ru.mypoint.databus.webserver.routes
 
+import com.google.gson.Gson
 import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -10,10 +11,7 @@ import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.util.*
-import ru.mypoint.databus.webserver.dto.MethodsRequest
-import ru.mypoint.databus.webserver.dto.RequestWebServer
-import ru.mypoint.databus.webserver.dto.ResponseDTO
-import ru.mypoint.databus.webserver.dto.ResponseStatus
+import ru.mypoint.databus.webserver.dto.*
 import java.net.ConnectException
 
 @Suppress("unused") // Referenced in application.conf
@@ -66,6 +64,7 @@ fun Application.webServerModule() {
                     when(error) {
                         is ClientRequestException -> {
                             when(error.response.status.value) {
+                                401 -> return@post call.respond(HttpStatusCode.Unauthorized, ResponseDTO(ResponseStatus.Unauthorized.value))
                                 409 -> return@post call.respond(HttpStatusCode.Conflict, ResponseDTO(ResponseStatus.Conflict.value))
                                 500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
                             }
@@ -79,6 +78,43 @@ fun Application.webServerModule() {
                 }
 
                 if (result != null) {
+                    call.respond(HttpStatusCode.OK, result)
+                } else {
+                    call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
+                }
+            }
+
+            post("/login") {
+                val authDTO = call.receive<AuthDTO>()
+
+                val result = try {
+                    client.post<String> {
+                        url {
+                            encodedPath = "/users/login"
+                        }
+
+                        contentType(ContentType.Application.Json)
+
+                        body = Gson().toJson(authDTO)
+                    }
+                } catch (error: Throwable) {
+                    when(error) {
+                        is ClientRequestException -> {
+                            when(error.response.status.value) {
+                                401 -> return@post call.respond(HttpStatusCode.Unauthorized, ResponseDTO(ResponseStatus.Unauthorized.value))
+                                500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                            }
+                        }
+                        is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
+
+                        else -> log.error(error.toString())
+                    }
+
+                    null
+                }
+
+                if (result != null) {
+                    // todo: JWT
                     call.respond(HttpStatusCode.OK, result)
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
