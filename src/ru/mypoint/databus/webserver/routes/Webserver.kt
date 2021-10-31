@@ -41,8 +41,58 @@ fun Application.webServerModule() {
             post("/dbservice/request") {
                 val request = call.receive<RequestWebServer>()
 
-                /** TODO блок auth */
-                val RoleAccessList = environment.config.propertyOrNull("security.realm" + request.dbUrl.replace("/", "."))?.getList()
+                /** блок auth */
+                val roleAccessList = try {
+                    val (url, _) = request.dbUrl.split("?")
+
+                    environment.config.propertyOrNull("security.realm" + url.replace("/", "."))?.getList()
+                } catch (error: Exception) {
+                    log.error(error.message)
+
+                    null
+                }
+
+                val token = request.authToken
+
+                if (roleAccessList != null && roleAccessList.isNotEmpty() && token == null) {
+                    /** если права прописаны, но токена нет - не пускаем */
+                    return@post call.respond(HttpStatusCode.Unauthorized)
+                } else if (roleAccessList != null && roleAccessList.isNotEmpty()) {
+                    /** если права прописаны и токен есть - проверяем токен */
+                    val secret = environment.config.property("jwt.secret").getString()
+
+                    val jwtVerifier = JWT
+                        .require(Algorithm.HMAC256(secret))
+                        .build()
+
+                    val verifierToken = try {
+                        jwtVerifier.verify(token)
+                    } catch (error: Exception) {
+                        /** если ошибка проверки токена */
+                        return@post call.respond(HttpStatusCode.Unauthorized)
+                    }
+
+                    val jsonUser = verifierToken.getClaim("user").asString()
+                    val userVerifyDTO = Gson().fromJson(jsonUser, UserVerifyDTO::class.java)
+
+                    /** проверяем пересечения по ролям */
+                    if (userVerifyDTO.roles.intersect(roleAccessList).isEmpty()) {
+                        if (roleAccessList.contains("Self")) {
+                            /** проверяем доступ по Self */
+                            val requestBodyDTO = Gson().fromJson(request.body, RequestBodyDTO::class.java)
+
+                            if (userVerifyDTO.email != requestBodyDTO.email) {
+                                /** не Self запрос */
+                                log.warn("No Self Request!")
+                                return@post call.respond(HttpStatusCode.Unauthorized)
+                            }
+                        } else {
+                            /** у пользователя нет нужных ролей и нет доступа по Self */
+                            return@post call.respond(HttpStatusCode.Unauthorized)
+                        }
+                    }
+                }
+                /** - END блок auth - */
 
                 /** блок основного запроса к БД */
                 val result = try {
@@ -67,7 +117,8 @@ fun Application.webServerModule() {
                     when(error) {
                         is ClientRequestException -> {
                             when(error.response.status.value) {
-                                401 -> return@post call.respond(HttpStatusCode.Unauthorized, ResponseDTO(ResponseStatus.Unauthorized.value))
+                                401 -> return@post call.respond(HttpStatusCode.Unauthorized)
+                                404 -> return@post call.respond(HttpStatusCode.NotFound)
                                 409 -> return@post call.respond(HttpStatusCode.Conflict, ResponseDTO(ResponseStatus.Conflict.value))
                                 500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
                             }
@@ -104,7 +155,7 @@ fun Application.webServerModule() {
                     when(error) {
                         is ClientRequestException -> {
                             when(error.response.status.value) {
-                                401 -> return@post call.respond(HttpStatusCode.Unauthorized, ResponseDTO(ResponseStatus.Unauthorized.value))
+                                401 -> return@post call.respond(HttpStatusCode.Unauthorized)
                                 500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
                             }
                         }
@@ -124,7 +175,6 @@ fun Application.webServerModule() {
                         .withClaim("user", result)
                         .withExpiresAt(Date(System.currentTimeMillis() + 2592000000)) // 30 days
                         .sign(Algorithm.HMAC256(secret))
-
 
                     call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
                 } else {

@@ -10,7 +10,7 @@ package ru.mypoint.databus.webserver.dto
 data class RequestWebServer(
     val dbUrl: String,
     val method: MethodsRequest,
-    val authToken: String,
+    val authToken: String?,
     val body: String?,
 )
 
