@@ -83,7 +83,7 @@ fun Application.webServerModule() {
 
                     /** проверка на блокировку */
                     val jsonUserFromDB = try {
-                        requestClientPost("/users/get", "{\"email\":\"${userVerifyDTO.email}\"}", client)
+                        requestClientPost("/users/get", "{\"email\":\"${userVerifyDTO?.email}\"}", client)
                     } catch (error: Throwable) {
                         when(error) {
                             is ClientRequestException -> {
@@ -104,6 +104,11 @@ fun Application.webServerModule() {
 
                     /** логика по проверке доступа */
                     if (userRepository != null && !userRepository.isNeedsPassword && !userRepository.isBlocked) {
+                        /** проверка хэш-кода */
+                        if (userRepository.hashCode != userVerifyDTO?.hashCode) {
+                            return@post call.respond(HttpStatusCode.Unauthorized)
+                        }
+
                         /** проверяем пересечения по ролям */
                         if (userRepository.roles.intersect(roleAccessList).isEmpty()) {
                             if (roleAccessList.contains("Self")) {
