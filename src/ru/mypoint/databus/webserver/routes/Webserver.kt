@@ -19,6 +19,7 @@ import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
 fun Application.webServerModule() {
+    /** настройки по умолчанию для запроса как клиент */
     val client = HttpClient(CIO) {
         defaultRequest { // this: HttpRequestBuilder ->
             try {
@@ -41,8 +42,8 @@ fun Application.webServerModule() {
             post("/dbservice/request") {
                 val request = call.receive<RequestWebServer>()
 
-                /** блок auth */
-                val roleAccessList = try {
+                /** - START AUTH - */
+                val roleAccessList = try { // получаем список ролей для доступа к end point
                     val (url, _) = request.dbUrl.split("?")
 
                     environment.config.propertyOrNull("security.realm" + url.replace("/", "."))?.getList()
@@ -54,6 +55,11 @@ fun Application.webServerModule() {
 
                 val token = request.authToken
 
+                /**
+                 * Условие построено так, выход из условия,
+                 * либо проверка пройдена или не проводилась,
+                 * либо получаем response и дальше не идем
+                 */
                 if (roleAccessList != null && roleAccessList.isNotEmpty() && token == null) {
                     /** если права прописаны, но токена нет - не пускаем */
                     return@post call.respond(HttpStatusCode.Unauthorized)
@@ -72,52 +78,66 @@ fun Application.webServerModule() {
                         return@post call.respond(HttpStatusCode.Unauthorized)
                     }
 
-                    val jsonUser = verifierToken.getClaim("user").asString()
-                    val userVerifyDTO = Gson().fromJson(jsonUser, UserVerifyDTO::class.java)
+                    val jsonUserFromToken = verifierToken.getClaim("user").asString()
+                    val userVerifyDTO = Gson().fromJson(jsonUserFromToken, UserVerifyDTO::class.java)
 
-                    /** проверяем пересечения по ролям */
-                    if (userVerifyDTO.roles.intersect(roleAccessList).isEmpty()) {
-                        if (roleAccessList.contains("Self")) {
-                            /** проверяем доступ по Self */
-                            val requestBodyDTO = Gson().fromJson(request.body, RequestBodyDTO::class.java)
+                    /** проверка на блокировку */
+                    val jsonUserFromDB = try {
+                        requestClientPost("/users/get", "{\"email\":\"${userVerifyDTO.email}\"}", client)
+                    } catch (error: Throwable) {
+                        when(error) {
+                            is ClientRequestException -> {
+                                when(error.response.status.value) {
+                                    404 -> return@post call.respond(HttpStatusCode.NotFound)
+                                    500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                                }
+                            }
+                            is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
 
-                            if (userVerifyDTO.email != requestBodyDTO.email) {
-                                /** не Self запрос */
-                                log.warn("No Self Request!")
+                            else -> log.error(error.toString())
+                        }
+
+                        null
+                    }
+
+                    val userRepository = Gson().fromJson(jsonUserFromDB, UserRepositoryDTO::class.java)
+
+                    /** логика по проверке доступа */
+                    if (userRepository != null && !userRepository.isNeedsPassword && !userRepository.isBlocked) {
+                        /** проверяем пересечения по ролям */
+                        if (userRepository.roles.intersect(roleAccessList).isEmpty()) {
+                            if (roleAccessList.contains("Self")) {
+                                /** проверяем доступ по Self */
+                                val requestBodyDTO = Gson().fromJson(request.body, RequestBodyDTO::class.java)
+
+                                if (userRepository.email != requestBodyDTO.email) {
+                                    /** не Self запрос */
+                                    log.warn("No Self Request!")
+                                    return@post call.respond(HttpStatusCode.Unauthorized)
+                                }
+                            } else {
+                                /** у пользователя нет нужных ролей и нет доступа по Self */
                                 return@post call.respond(HttpStatusCode.Unauthorized)
                             }
-                        } else {
-                            /** у пользователя нет нужных ролей и нет доступа по Self */
-                            return@post call.respond(HttpStatusCode.Unauthorized)
                         }
+                    } else {
+                        return@post call.respond(HttpStatusCode.Unauthorized)
                     }
                 }
-                /** - END блок auth - */
 
-                /** блок основного запроса к БД */
+                /** - END AUTH - */
+
+                /** - START основного запроса к БД - */
                 val result = try {
                     if (request.method === MethodsRequest.GET) {
-                        client.get<Any> {
-                            url {
-                                encodedPath = request.dbUrl
-                            }
-                        }
+                        requestClientGet(request.dbUrl, client)
                     } else { // (request.method === MethodsRequest.POST) {
-                        client.post<String> {
-                            url {
-                                encodedPath = request.dbUrl
-                            }
-
-                            contentType(ContentType.Application.Json)
-
-                            body = request.body ?: ""
-                        }
+                        requestClientPost(request.dbUrl, request.body ?: "", client)
                     }
                 } catch (error: Throwable) {
                     when(error) {
                         is ClientRequestException -> {
                             when(error.response.status.value) {
-                                401 -> return@post call.respond(HttpStatusCode.Unauthorized)
                                 404 -> return@post call.respond(HttpStatusCode.NotFound)
                                 409 -> return@post call.respond(HttpStatusCode.Conflict, ResponseDTO(ResponseStatus.Conflict.value))
                                 500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
@@ -130,7 +150,9 @@ fun Application.webServerModule() {
 
                     null
                 }
+                /** - END основного запроса к БД - */
 
+                /** возврат результата */
                 if (result != null) {
                     call.respond(HttpStatusCode.OK, result)
                 } else {
@@ -182,5 +204,25 @@ fun Application.webServerModule() {
                 }
             }
         }
+    }
+}
+
+suspend fun requestClientGet(path: String, client: HttpClient): String {
+    return client.get {
+        url {
+            encodedPath = path
+        }
+    }
+}
+
+suspend fun requestClientPost(path: String, requestBody: String, client: HttpClient): String {
+    return client.post {
+        url {
+            encodedPath = path
+        }
+
+        contentType(ContentType.Application.Json)
+
+        body = requestBody
     }
 }
