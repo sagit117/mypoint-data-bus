@@ -207,7 +207,20 @@ fun Application.webServerModule() {
 
                     call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
 
-                    // TODO: отправить сообщение в rabbit
+                    // отправить сообщение в rabbit
+                    RabbitMQ.getConnection().createChannel().use { channel ->
+                        channel.exchangeDeclare("ex_notification", "fanout")
+                        channel.queueDeclare("q_notification", true, false, false, null)
+                        channel.queueBind("q_notification", "ex_notification", "k_notification")
+
+                        val message = "Hello World!"
+                        channel.basicPublish(
+                            "ex_notification",
+                            "k_notification",
+                            null,
+                            message.toByteArray(StandardCharsets.UTF_8)
+                        )
+                    }
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
