@@ -15,6 +15,8 @@ import ru.mypoint.databus.webserver.dto.*
 import java.net.ConnectException
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import ru.mypoint.databus.connectors.RabbitMQ
+import java.nio.charset.StandardCharsets
 import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
@@ -204,6 +206,8 @@ fun Application.webServerModule() {
                         .sign(Algorithm.HMAC256(secret))
 
                     call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
+
+                    // TODO: отправить сообщение в rabbit
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
