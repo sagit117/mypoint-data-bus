@@ -38,7 +38,7 @@ fun Application.webServerModule() {
     routing {
         route("/webserver") {
             get("/ping") {
-                call.respond(HttpStatusCode.OK, "OK")
+                call.respond(HttpStatusCode.OK, mapOf("status" to "OK"))
             }
 
             post("/dbservice/request") {
@@ -171,15 +171,7 @@ fun Application.webServerModule() {
                 val authDTO = call.receive<AuthDTO>()
 
                 val result = try {
-                    client.post<String> {
-                        url {
-                            encodedPath = "/users/login"
-                        }
-
-                        contentType(ContentType.Application.Json)
-
-                        body = Gson().toJson(authDTO)
-                    }
+                    requestClientPost("/users/login", Gson().toJson(authDTO), client)
                 } catch (error: Throwable) {
                     when(error) {
                         is ClientRequestException -> {
@@ -207,20 +199,7 @@ fun Application.webServerModule() {
 
                     call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
 
-                    // отправить сообщение в rabbit
-                    RabbitMQ.getConnection().createChannel().use { channel ->
-                        channel.exchangeDeclare("ex_notification", "fanout")
-                        channel.queueDeclare("q_notification", true, false, false, null)
-                        channel.queueBind("q_notification", "ex_notification", "k_notification")
-
-                        val message = "Hello World!"
-                        channel.basicPublish(
-                            "ex_notification",
-                            "k_notification",
-                            null,
-                            message.toByteArray(StandardCharsets.UTF_8)
-                        )
-                    }
+                    RabbitMQ.sendNotification("hello")
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
