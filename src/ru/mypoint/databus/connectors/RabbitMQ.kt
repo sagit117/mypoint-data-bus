@@ -1,5 +1,7 @@
 package ru.mypoint.databus.connectors
 
+import com.rabbitmq.client.BuiltinExchangeType
+import com.rabbitmq.client.Channel
 import com.rabbitmq.client.Connection
 import com.rabbitmq.client.ConnectionFactory
 import io.ktor.application.*
@@ -10,76 +12,83 @@ import java.nio.charset.StandardCharsets
 
 @Suppress("unused") // Referenced in application.conf
 fun Application.rabbitModule() {
-    val connectionString = environment.config.propertyOrNull("rabbitmq.connectionString")?.getString()
+    val config = RabbitConnectionConfig(
+        user = environment.config.propertyOrNull("rabbitmq.user")?.getString() ?: "guest",
+        password = environment.config.propertyOrNull("rabbitmq.password")?.getString() ?: "guest",
+        host = environment.config.propertyOrNull("rabbitmq.host")?.getString(),
+        vHost = environment.config.propertyOrNull("rabbitmq.vHost")?.getString(),
+        port = environment.config.propertyOrNull("rabbitmq.port")?.getString()
+    )
 
-    if (connectionString != null) {
-        RabbitMQ.setConnection(connectionString, log)
-    }
+    RabbitMQ.setConnection(config, log)
 }
+
+// класс для хранения настроек подключения
+data class RabbitConnectionConfig(
+    val user: String,
+    val password: String,
+    val host: String? = "127.0.0.1",
+    val vHost: String? = "/",
+    val port: String? = "5672",
+)
 
 object RabbitMQ {
     private var connection: Connection? = null
-    private var connectionString: String = ""
+    private var configConnection: RabbitConnectionConfig? = null
     private var logger: Logger? = null
+    private var notificationChannel: Channel? = null
 
-    fun setConnection(connString: String, log: Logger): Connection? {
+    fun setConnection(config: RabbitConnectionConfig, log: Logger): Connection? {
         val factory = ConnectionFactory()
 
-        connection = try {
-            factory.newConnection(connString)
-        } catch (error: Throwable) {
-            log.error(error.message)
+        factory.username = config.user
+        factory.password = config.password
+        factory.virtualHost = config.vHost
+        factory.host = config.host
+        factory.port = config.port?.toInt() ?: 5672
 
+        connection = try {
+            factory.newConnection("Data-Bus")
+        } catch (error: Throwable) {
+            log.error("RabbitMQ connection error: " + error.message)
             null
         }
 
         if (logger == null) logger = log
-
-        if (connection != null && connectionString == "") {
-            connectionString = connString
-        }
+        if (configConnection == null) configConnection = config
 
         return connection
     }
 
-    suspend fun sendNotification(message: String) {
+    fun sendNotification(message: String) {
         checkConnection()
 
         // отправить сообщение в rabbit
-        connection?.let {
-            it.createChannel().use { channel ->
-                channel.exchangeDeclare("ex_notification", "fanout")
-                channel.queueDeclare("q_notification", true, false, false, null)
-                channel.queueBind("q_notification", "ex_notification", "k_notification")
+        try {
+            val channel = if (notificationChannel?.isOpen == true) notificationChannel!! else connection!!.createChannel()
 
-                channel.basicPublish(
-                    "ex_notification",
-                    "k_notification",
-                    null,
-                    message.toByteArray(StandardCharsets.UTF_8)
-                )
-            }
+            channel.exchangeDeclare("ex.notification", BuiltinExchangeType.DIRECT, true)
+            channel.queueDeclare("q_notification", true, false, false, null)
+            channel.queueBind("q_notification", "ex.notification", "k_notification")
+
+            channel.basicPublish(
+                "ex.notification",
+                "k_notification",
+                null,
+                message.toByteArray(StandardCharsets.UTF_8)
+            )
+
+            if (notificationChannel?.isOpen != true) notificationChannel = channel
+
+            logger?.info("RabbitMQ send message: $message")
+        } catch (error: Throwable) {
+            logger?.error("RabbitMQ send notification error: " + error.message)
         }
     }
 
-    private suspend fun checkConnection() {
-        var count = 0
-
-        while (connection == null) {
-            reconnection()
-            count++
-
-            if (count > 15) throw Exception("No Rabbit connection!")
-        }
-
-    }
-
-    private suspend fun reconnection() {
-        if (connection == null && connectionString != "" && logger != null) {
-            runBlocking {
-                delay(1000)
-                setConnection(connectionString, logger!!)
-            }
+    private fun checkConnection() {
+        if (connection == null && configConnection != null && logger != null) {
+            setConnection(configConnection!!, logger!!)
         }
     }
 }
