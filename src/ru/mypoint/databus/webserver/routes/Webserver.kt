@@ -200,6 +200,16 @@ fun Application.webServerModule() {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
             }
+
+            post("/send/notification") {
+                val json = call.receive<String>()
+
+                if (RabbitMQ.sendNotification(json)) {
+                    call.respond(HttpStatusCode.OK)
+                } else {
+                    call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                }
+            }
         }
     }
 }

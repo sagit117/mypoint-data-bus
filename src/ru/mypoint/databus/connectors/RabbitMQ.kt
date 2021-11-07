@@ -64,7 +64,7 @@ object RabbitMQ {
         return connection
     }
 
-    fun sendNotification(message: String) {
+    fun sendNotification(message: String): Boolean {
         checkConnection()
 
         // отправить сообщение в rabbit
@@ -85,8 +85,12 @@ object RabbitMQ {
             if (notificationChannel?.isOpen != true) notificationChannel = channel
 
             logger?.info("RabbitMQ send message: $message")
+
+            return true
         } catch (error: Throwable) {
             logger?.error("RabbitMQ send notification error: " + error.message)
+
+            return false
         }
     }
 
