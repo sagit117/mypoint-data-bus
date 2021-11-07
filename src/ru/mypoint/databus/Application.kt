@@ -5,6 +5,9 @@ import io.ktor.request.*
 import io.ktor.features.*
 import org.slf4j.event.*
 import io.ktor.gson.*
+import io.ktor.http.*
+import io.ktor.response.*
+import io.ktor.routing.*
 
 fun main(args: Array<String>): Unit = io.ktor.server.jetty.EngineMain.main(args)
 
@@ -18,6 +21,12 @@ fun Application.module(testing: Boolean = false) {
 
     install(ContentNegotiation) {
         gson {
+        }
+    }
+
+    routing {
+        get("/ping") {
+            call.respond(HttpStatusCode.OK, mapOf("status" to "OK"))
         }
     }
 }

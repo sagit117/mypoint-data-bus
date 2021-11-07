@@ -37,10 +37,6 @@ fun Application.webServerModule() {
 
     routing {
         route("/webserver") {
-            get("/ping") {
-                call.respond(HttpStatusCode.OK, mapOf("status" to "OK"))
-            }
-
             post("/dbservice/request") {
                 val request = call.receive<RequestWebServer>()
 
