@@ -85,7 +85,7 @@ fun Application.webServerModule() {
 
                     /** проверка на блокировку */
                     val jsonUserFromDB = try {
-                        requestClientPost("/users/get", "{\"email\":\"${userVerifyDTO?.email}\"}", client)
+                        requestClientPost("v1/users/get", "{\"email\":\"${userVerifyDTO?.email}\"}", client)
                     } catch (error: Throwable) {
                         when(error) {
                             is ClientRequestException -> {
@@ -171,7 +171,7 @@ fun Application.webServerModule() {
                 val authDTO = call.receive<AuthDTO>()
 
                 val result = try {
-                    requestClientPost("/users/login", Gson().toJson(authDTO), client)
+                    requestClientPost("/v1/users/login", Gson().toJson(authDTO), client)
                 } catch (error: Throwable) {
                     when(error) {
                         is ClientRequestException -> {
@@ -199,7 +199,7 @@ fun Application.webServerModule() {
 
                     call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
 
-                    RabbitMQ.sendNotification("hello")
+                    RabbitMQ.sendNotification("{\"type\":\"LOGIN\",\"userEmail\":\"${authDTO.email}\"}")
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }

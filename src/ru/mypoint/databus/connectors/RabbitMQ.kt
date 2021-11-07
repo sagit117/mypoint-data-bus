@@ -5,8 +5,6 @@ import com.rabbitmq.client.Channel
 import com.rabbitmq.client.Connection
 import com.rabbitmq.client.ConnectionFactory
 import io.ktor.application.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 import java.nio.charset.StandardCharsets
 
@@ -17,7 +15,10 @@ fun Application.rabbitModule() {
         password = environment.config.propertyOrNull("rabbitmq.password")?.getString() ?: "guest",
         host = environment.config.propertyOrNull("rabbitmq.host")?.getString(),
         vHost = environment.config.propertyOrNull("rabbitmq.vHost")?.getString(),
-        port = environment.config.propertyOrNull("rabbitmq.port")?.getString()
+        port = environment.config.propertyOrNull("rabbitmq.port")?.getString(),
+        exNotification = environment.config.propertyOrNull("rabbitmq.exNotification")?.getString(),
+        keyNotification = environment.config.propertyOrNull("rabbitmq.keyNotification")?.getString(),
+        queueNotification = environment.config.propertyOrNull("rabbitmq.queueNotification")?.getString(),
     )
 
     RabbitMQ.setConnection(config, log)
@@ -30,6 +31,9 @@ data class RabbitConnectionConfig(
     val host: String? = "127.0.0.1",
     val vHost: String? = "/",
     val port: String? = "5672",
+    val exNotification: String? = "ex.notification",
+    val keyNotification: String? = "k_notification",
+    val queueNotification: String? = "q_notification"
 )
 
 object RabbitMQ {
@@ -67,13 +71,13 @@ object RabbitMQ {
         try {
             val channel = if (notificationChannel?.isOpen == true) notificationChannel!! else connection!!.createChannel()
 
-            channel.exchangeDeclare("ex.notification", BuiltinExchangeType.DIRECT, true)
-            channel.queueDeclare("q_notification", true, false, false, null)
-            channel.queueBind("q_notification", "ex.notification", "k_notification")
+            channel.exchangeDeclare(configConnection?.exNotification, BuiltinExchangeType.DIRECT, true)
+            channel.queueDeclare(configConnection?.queueNotification, true, false, false, null)
+            channel.queueBind(configConnection?.queueNotification, configConnection?.exNotification, configConnection?.keyNotification)
 
             channel.basicPublish(
-                "ex.notification",
-                "k_notification",
+                configConnection?.exNotification,
+                configConnection?.keyNotification,
                 null,
                 message.toByteArray(StandardCharsets.UTF_8)
             )
