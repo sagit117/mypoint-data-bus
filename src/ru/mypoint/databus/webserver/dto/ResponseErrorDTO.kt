@@ -12,4 +12,5 @@ enum class ResponseStatus(val value: String) {
     Conflict("The Data Already Exists"),
     InternalServerError("Internal Server Error"),
     ServiceUnavailable("Service Unavailable"),
+    BadRequest("Bad Request"),
 }

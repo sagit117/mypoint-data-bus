@@ -16,7 +16,7 @@ import java.net.ConnectException
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import ru.mypoint.databus.connectors.RabbitMQ
-import java.nio.charset.StandardCharsets
+import ru.mypoint.databus.webserver.dto.notification.TemplateEmailRepositoryDTO
 import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
@@ -202,13 +202,55 @@ fun Application.webServerModule() {
             }
 
             post("/send/notification") {
-                val json = call.receive<String>()
+                val sendNotificationDTO = call.receive<RequestFromWebServerSendNotificationDTO>()
 
-                if (RabbitMQ.sendNotification(json)) {
-                    call.respond(HttpStatusCode.OK)
-                } else {
-                    call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                val notification = try {
+                    sendNotificationDTO.copy()
+                } catch (error: Exception) {
+                    log.error(error.toString())
+                    null
                 }
+
+                if (notification != null) {
+                    val result = try {
+                        when(notification.type) {
+                            TypeNotification.EMAIL -> requestClientPost("/v1/templates/email/get", sendNotificationDTO.templateName, client)
+
+                            else -> null
+                        }
+                    } catch (error: Throwable) {
+                        when(error) {
+                            is ClientRequestException -> {
+                                when(error.response.status.value) {
+                                    401 -> return@post call.respond(HttpStatusCode.Unauthorized)
+                                    500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                                }
+                            }
+                            is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
+
+                            else -> log.error(error.toString())
+                        }
+
+                        null
+                    }
+
+                    if (result != null) {
+                        // todo
+                        val templateEmailRepositoryDTO = Gson().fromJson(result, TemplateEmailRepositoryDTO::class.java)
+
+                        println(templateEmailRepositoryDTO.toString())
+                    } else {
+                        call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
+                    }
+                } else {
+                    call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
+                }
+
+//                if (RabbitMQ.sendNotification(json)) {
+//                    call.respond(HttpStatusCode.OK)
+//                } else {
+//                    call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+//                }
             }
         }
     }
