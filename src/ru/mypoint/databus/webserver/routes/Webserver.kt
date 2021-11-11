@@ -16,7 +16,10 @@ import java.net.ConnectException
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import ru.mypoint.databus.connectors.RabbitMQ
+import ru.mypoint.databus.webserver.dto.notification.RequestFromWebServerSendNotificationDTO
+import ru.mypoint.databus.webserver.dto.notification.SendNotificationToRabbitDTO
 import ru.mypoint.databus.webserver.dto.notification.TemplateEmailRepositoryDTO
+import ru.mypoint.databus.webserver.dto.notification.TypeNotification
 import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
@@ -214,7 +217,7 @@ fun Application.webServerModule() {
                 if (notification != null) {
                     val result = try {
                         when(notification.type) {
-                            TypeNotification.EMAIL -> requestClientPost("/v1/templates/email/get", sendNotificationDTO.templateName, client)
+                            TypeNotification.EMAIL -> requestClientPost("/v1/templates/email/get", "{\"name\":\"${sendNotificationDTO.templateName}\"}", client)
 
                             else -> null
                         }
@@ -235,10 +238,24 @@ fun Application.webServerModule() {
                     }
 
                     if (result != null) {
-                        // todo
                         val templateEmailRepositoryDTO = Gson().fromJson(result, TemplateEmailRepositoryDTO::class.java)
 
-                        println(templateEmailRepositoryDTO.toString())
+                        // формирование объекта для отправки в rabbit
+                        val sendNotificationDTO = SendNotificationToRabbitDTO(
+                            type = notification.type,
+                            recipients = notification.recipients,
+                            template = templateEmailRepositoryDTO.template,
+                            subject = templateEmailRepositoryDTO.subject,
+                            altMsgText = templateEmailRepositoryDTO.altMsgText
+                        )
+
+                        val json = Gson().toJson(sendNotificationDTO)
+
+                        if (RabbitMQ.sendNotification(json)) {
+                            call.respond(HttpStatusCode.OK)
+                        } else {
+                            call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                        }
                     } else {
                         call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                     }
@@ -246,11 +263,6 @@ fun Application.webServerModule() {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
 
-//                if (RabbitMQ.sendNotification(json)) {
-//                    call.respond(HttpStatusCode.OK)
-//                } else {
-//                    call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
-//                }
             }
         }
     }

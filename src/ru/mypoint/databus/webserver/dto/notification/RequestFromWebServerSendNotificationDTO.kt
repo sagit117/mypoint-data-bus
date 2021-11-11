@@ -1,8 +1,8 @@
-package ru.mypoint.databus.webserver.dto
+package ru.mypoint.databus.webserver.dto.notification
 
 data class RequestFromWebServerSendNotificationDTO(
     val type: TypeNotification,
-    val recipients: List<String>,
+    val recipients: Set<String>,
     val templateName: String
 )
 
