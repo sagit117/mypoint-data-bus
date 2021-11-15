@@ -87,7 +87,7 @@ fun Application.webServerModule() {
 
                     /** проверка на блокировку */
                     val jsonUserFromDB = try {
-                        val routeGetUsers = environment.config.property("getUsers").getString()
+                        val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
                         requestClientPost(routeGetUsers, "{\"email\":\"${userVerifyDTO?.email}\"}", client)
                     } catch (error: Throwable) {
                         when(error) {
@@ -174,7 +174,7 @@ fun Application.webServerModule() {
                 val authDTO = call.receive<AuthDTO>()
 
                 val result = try {
-                    val routeLogin = environment.config.property("login").getString()
+                    val routeLogin = environment.config.property("routesDB.login").getString()
                     requestClientPost(routeLogin, Gson().toJson(authDTO), client)
                 } catch (error: Throwable) {
                     when(error) {
@@ -208,66 +208,58 @@ fun Application.webServerModule() {
             }
 
             post("/send/notification") {
-                val sendNotificationDTO = call.receive<RequestFromWebServerSendNotificationDTO>()
-
-                val notification = try {
-                    sendNotificationDTO.copy()
+                val notification = try { // входные данные
+                    call.receive<RequestFromWebServerSendNotificationDTO>().copy()
                 } catch (error: Exception) {
                     log.error(error.toString())
-                    null
+                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
 
-                if (notification != null) {
-                    val result = try {
-                        val routeTemplateEmailGet = environment.config.property("templateEmailGet").getString()
+                val templateJSON = try { // шаблон нотификации
+                    val routeTemplateEmailGet = environment.config.property("routesDB.templateEmailGet").getString()
 
-                        when(notification.type) {
-                            TypeNotification.EMAIL -> requestClientPost(routeTemplateEmailGet, "{\"name\":\"${sendNotificationDTO.templateName}\"}", client)
+                    when(notification.type) {
+                        TypeNotification.EMAIL -> requestClientPost(routeTemplateEmailGet, "{\"name\":\"${notification.templateName}\"}", client)
 
-                            else -> null
-                        }
-                    } catch (error: Throwable) {
-                        when(error) {
-                            is ClientRequestException -> {
-                                when(error.response.status.value) {
-                                    401 -> return@post call.respond(HttpStatusCode.Unauthorized)
-                                    500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
-                                }
+                        else -> return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
+                    }
+                } catch (error: Throwable) {
+                    when(error) {
+                        is ClientRequestException -> {
+                            when(error.response.status.value) {
+                                401 -> return@post call.respond(HttpStatusCode.Unauthorized)
+                                500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
                             }
-                            is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
-
-                            else -> log.error(error.toString())
                         }
+                        is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
 
-                        null
+                        else -> log.error("Unhandled Error: $error")
                     }
 
-                    if (result != null) {
-                        val templateEmailRepositoryDTO = Gson().fromJson(result, TemplateEmailRepositoryDTO::class.java)
-
-                        // формирование объекта для отправки в rabbit
-                        val sendNotificationDTO = SendNotificationToRabbitDTO(
-                            type = notification.type,
-                            recipients = notification.recipients,
-                            template = templateEmailRepositoryDTO.template,
-                            subject = templateEmailRepositoryDTO.subject,
-                            altMsgText = templateEmailRepositoryDTO.altMsgText
-                        )
-
-                        val json = Gson().toJson(sendNotificationDTO)
-
-                        if (RabbitMQ.sendNotification(json)) {
-                            call.respond(HttpStatusCode.OK)
-                        } else {
-                            call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
-                        }
-                    } else {
-                        call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                    }
-                } else {
-                    call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
+                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
 
+                // templateJSON != null
+                val templateDTO = when(notification.type) {
+                    TypeNotification.EMAIL -> Gson().fromJson(templateJSON, TemplateEmailRepositoryDTO::class.java)
+                }
+
+                // формирование объекта для отправки в rabbit
+                val sendNotificationDTO = SendNotificationToRabbitDTO(
+                    type = notification.type,
+                    recipients = notification.recipients,
+                    template = templateDTO.template,
+                    subject = templateDTO.subject,
+                    altMsgText = templateDTO.altMsgText
+                )
+
+                val json = Gson().toJson(sendNotificationDTO)
+
+                if (RabbitMQ.sendNotification(json)) {
+                    call.respond(HttpStatusCode.OK)
+                } else {
+                    call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                }
             }
         }
     }
