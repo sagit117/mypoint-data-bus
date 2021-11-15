@@ -158,22 +158,18 @@ fun Application.webServerModule() {
                         else -> log.error(error.toString())
                     }
 
-                    null
+                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
                 /** - END основного запроса к БД - */
 
                 /** возврат результата */
-                if (result != null) {
-                    call.respond(HttpStatusCode.OK, result)
-                } else {
-                    call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                }
+                call.respond(HttpStatusCode.OK, result)
             }
 
             post("/login") {
                 val authDTO = call.receive<AuthDTO>()
 
-                val result = try {
+                val userJSON = try {
                     val routeLogin = environment.config.property("routesDB.login").getString()
                     requestClientPost(routeLogin, Gson().toJson(authDTO), client)
                 } catch (error: Throwable) {
@@ -189,22 +185,17 @@ fun Application.webServerModule() {
                         else -> log.error(error.toString())
                     }
 
-                    null
+                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
 
-                if (result != null) {
-                    // JWT
-                    val secret = environment.config.property("jwt.secret").getString()
+                // JWT
+                val secret = environment.config.property("jwt.secret").getString()
+                val jwt = JWT.create()
+                    .withClaim("user", userJSON)
+                    .withExpiresAt(Date(System.currentTimeMillis() + 2592000000)) // 30 days
+                    .sign(Algorithm.HMAC256(secret))
 
-                    val jwt = JWT.create()
-                        .withClaim("user", result)
-                        .withExpiresAt(Date(System.currentTimeMillis() + 2592000000)) // 30 days
-                        .sign(Algorithm.HMAC256(secret))
-
-                    call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
-                } else {
-                    call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                }
+                call.respond(HttpStatusCode.OK, mapOf("user" to userJSON, "token" to jwt))
             }
 
             post("/send/notification") {
