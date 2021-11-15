@@ -15,11 +15,14 @@ import ru.mypoint.databus.webserver.dto.*
 import java.net.ConnectException
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import ru.mypoint.databus.auth.dto.AuthDTO
+import ru.mypoint.databus.auth.dto.UserRepositoryDTO
+import ru.mypoint.databus.auth.dto.UserVerifyDTO
 import ru.mypoint.databus.connectors.RabbitMQ
-import ru.mypoint.databus.webserver.dto.notification.RequestFromWebServerSendNotificationDTO
-import ru.mypoint.databus.webserver.dto.notification.SendNotificationToRabbitDTO
-import ru.mypoint.databus.webserver.dto.notification.TemplateEmailRepositoryDTO
-import ru.mypoint.databus.webserver.dto.notification.TypeNotification
+import ru.mypoint.databus.notification.dto.SendNotificationToRabbitDTO
+import ru.mypoint.databus.notification.dto.TemplateEmailRepositoryDTO
+import ru.mypoint.databus.notification.dto.RequestFromWebServerSendNotificationDTO
+import ru.mypoint.databus.notification.dto.TypeNotification
 import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
@@ -84,7 +87,8 @@ fun Application.webServerModule() {
 
                     /** проверка на блокировку */
                     val jsonUserFromDB = try {
-                        requestClientPost("v1/users/get", "{\"email\":\"${userVerifyDTO?.email}\"}", client)
+                        val routeGetUsers = environment.config.property("getUsers").getString()
+                        requestClientPost(routeGetUsers, "{\"email\":\"${userVerifyDTO?.email}\"}", client)
                     } catch (error: Throwable) {
                         when(error) {
                             is ClientRequestException -> {
@@ -170,7 +174,8 @@ fun Application.webServerModule() {
                 val authDTO = call.receive<AuthDTO>()
 
                 val result = try {
-                    requestClientPost("/v1/users/login", Gson().toJson(authDTO), client)
+                    val routeLogin = environment.config.property("login").getString()
+                    requestClientPost(routeLogin, Gson().toJson(authDTO), client)
                 } catch (error: Throwable) {
                     when(error) {
                         is ClientRequestException -> {
@@ -197,8 +202,6 @@ fun Application.webServerModule() {
                         .sign(Algorithm.HMAC256(secret))
 
                     call.respond(HttpStatusCode.OK, mapOf("user" to result, "token" to jwt))
-
-                    RabbitMQ.sendNotification("{\"type\":\"LOGIN\",\"userEmail\":\"${authDTO.email}\"}")
                 } else {
                     call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
                 }
@@ -216,8 +219,10 @@ fun Application.webServerModule() {
 
                 if (notification != null) {
                     val result = try {
+                        val routeTemplateEmailGet = environment.config.property("templateEmailGet").getString()
+
                         when(notification.type) {
-                            TypeNotification.EMAIL -> requestClientPost("/v1/templates/email/get", "{\"name\":\"${sendNotificationDTO.templateName}\"}", client)
+                            TypeNotification.EMAIL -> requestClientPost(routeTemplateEmailGet, "{\"name\":\"${sendNotificationDTO.templateName}\"}", client)
 
                             else -> null
                         }

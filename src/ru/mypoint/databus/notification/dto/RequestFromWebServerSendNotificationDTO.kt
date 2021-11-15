@@ -1,4 +1,4 @@
-package ru.mypoint.databus.webserver.dto.notification
+package ru.mypoint.databus.notification.dto
 
 data class RequestFromWebServerSendNotificationDTO(
     val type: TypeNotification,

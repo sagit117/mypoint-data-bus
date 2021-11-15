@@ -1,4 +1,4 @@
-package ru.mypoint.databus.webserver.dto
+package ru.mypoint.databus.auth.dto
 
 /**
  * DTO для проверке пользователя в токене JWT
