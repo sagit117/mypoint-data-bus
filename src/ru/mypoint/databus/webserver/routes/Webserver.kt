@@ -107,7 +107,10 @@ fun Application.webServerModule() {
 
                     val userRepository = Gson().fromJson(jsonUserFromDB, UserRepositoryDTO::class.java)
 
-                    /** логика по проверке доступа */
+                    /**
+                     * логика по проверке доступа
+                     * проверка блокировок
+                     */
                     if (userRepository != null && !userRepository.isNeedsPassword && !userRepository.isBlocked) {
                         /** проверка хэш-кода */
                         if (userRepository.hashCode != userVerifyDTO?.hashCode) {
