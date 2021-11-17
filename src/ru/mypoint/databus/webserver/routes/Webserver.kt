@@ -154,6 +154,8 @@ fun Application.webServerModule() {
                                 404 -> return@post call.respond(HttpStatusCode.NotFound)
                                 409 -> return@post call.respond(HttpStatusCode.Conflict, ResponseDTO(ResponseStatus.Conflict.value))
                                 500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+
+                                else -> log.error(error.toString())
                             }
                         }
                         is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
