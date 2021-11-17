@@ -42,9 +42,8 @@ fun Application.webServerModule() {
             }
 
             install(JsonFeature) {
-                serializer = GsonSerializer() {
-                    disableHtmlEscaping()
-                }
+//                serializer = GsonSerializer {
+//                }
             }
         }
     }
