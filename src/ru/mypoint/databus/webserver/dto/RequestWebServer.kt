@@ -11,7 +11,7 @@ data class RequestWebServer(
     val dbUrl: String,
     val method: MethodsRequest,
     val authToken: String?,
-    val body: String?,
+    val body: Any?,
 )
 
 enum class MethodsRequest {

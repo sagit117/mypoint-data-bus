@@ -1,6 +1,6 @@
 package ru.mypoint.databus.webserver.dto
 
-data class ResponseDTO(val status: String)
+data class ResponseStatusDTO(val status: String)
 
 /**
  * Класс для ответа на запрос webserver

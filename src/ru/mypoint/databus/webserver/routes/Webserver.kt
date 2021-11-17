@@ -12,31 +12,39 @@ import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.util.*
 import ru.mypoint.databus.webserver.dto.*
-import java.net.ConnectException
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import io.ktor.client.features.json.*
 import ru.mypoint.databus.auth.dto.AuthDTO
+import ru.mypoint.databus.auth.dto.UserGetDTO
 import ru.mypoint.databus.auth.dto.UserRepositoryDTO
 import ru.mypoint.databus.auth.dto.UserVerifyDTO
 import ru.mypoint.databus.connectors.RabbitMQ
-import ru.mypoint.databus.notification.dto.SendNotificationToRabbitDTO
-import ru.mypoint.databus.notification.dto.TemplateEmailRepositoryDTO
-import ru.mypoint.databus.notification.dto.RequestFromWebServerSendNotificationDTO
-import ru.mypoint.databus.notification.dto.TypeNotification
+import ru.mypoint.databus.notification.dto.*
+import ru.mypoint.databus.webserver.createDataBusClient
 import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
 fun Application.webServerModule() {
     /** настройки по умолчанию для запроса как клиент */
-    val client = HttpClient(CIO) {
-        defaultRequest { // this: HttpRequestBuilder ->
-            try {
-                host = environment.config.propertyOrNull("dbservices.host")?.getString() ?: "127.0.0.1"
-                port = environment.config.propertyOrNull("dbservices.port")?.getString()?.toInt() ?: 8081
-            } catch (error: Exception) {
-                log.error(error)
-                host = "127.0.0.1"
-                port = 8081
+    val client = createDataBusClient {
+        logger = log
+        httpClient = HttpClient(CIO) {
+            defaultRequest { // this: HttpRequestBuilder ->
+                try {
+                    host = environment.config.propertyOrNull("dbservices.host")?.getString() ?: "127.0.0.1"
+                    port = environment.config.propertyOrNull("dbservices.port")?.getString()?.toInt() ?: 8081
+                } catch (error: Exception) {
+                    log.error(error)
+                    host = "127.0.0.1"
+                    port = 8081
+                }
+            }
+
+            install(JsonFeature) {
+                serializer = GsonSerializer() {
+                    disableHtmlEscaping()
+                }
             }
         }
     }
@@ -86,32 +94,18 @@ fun Application.webServerModule() {
                     val userVerifyDTO = Gson().fromJson(jsonUserFromToken, UserVerifyDTO::class.java)
 
                     /** проверка на блокировку */
-                    val jsonUserFromDB = try {
-                        val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
-                        requestClientPost(routeGetUsers, "{\"email\":\"${userVerifyDTO?.email}\"}", client)
-                    } catch (error: Throwable) {
-                        when(error) {
-                            is ClientRequestException -> {
-                                when(error.response.status.value) {
-                                    404 -> return@post call.respond(HttpStatusCode.NotFound)
-                                    500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
-                                }
-                            }
-                            is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
+                    val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
+                    val userRepositoryJSON =
+                        client
+                            .post<String>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
+                                ?: return@post
 
-                            else -> log.error(error.toString())
-                        }
-
-                        null
-                    }
-
-                    val userRepository = Gson().fromJson(jsonUserFromDB, UserRepositoryDTO::class.java)
-
+                    val userRepository = Gson().fromJson(userRepositoryJSON, UserRepositoryDTO::class.java)
                     /**
                      * логика по проверке доступа
                      * проверка блокировок
                      */
-                    if (userRepository != null && !userRepository.isNeedsPassword && !userRepository.isBlocked) {
+                    if (!userRepository.isNeedsPassword && !userRepository.isBlocked) {
                         /** проверка хэш-кода */
                         if (userRepository.hashCode != userVerifyDTO?.hashCode) {
                             return@post call.respond(HttpStatusCode.Unauthorized)
@@ -121,7 +115,7 @@ fun Application.webServerModule() {
                         if (userRepository.roles.intersect(roleAccessList).isEmpty()) {
                             if (roleAccessList.contains("Self")) {
                                 /** проверяем доступ по Self */
-                                val requestBodyDTO = Gson().fromJson(request.body, RequestBodyDTO::class.java)
+                                val requestBodyDTO = Gson().fromJson(request.body.toString(), RequestBodyDTO::class.java)
 
                                 if (userRepository.email != requestBodyDTO.email) {
                                     /** не Self запрос */
@@ -141,30 +135,8 @@ fun Application.webServerModule() {
                 /** - END AUTH - */
 
                 /** - START основного запроса к БД - */
-                val result = try {
-                    if (request.method === MethodsRequest.GET) {
-                        requestClientGet(request.dbUrl, client)
-                    } else { // (request.method === MethodsRequest.POST) {
-                        requestClientPost(request.dbUrl, request.body ?: "", client)
-                    }
-                } catch (error: Throwable) {
-                    when(error) {
-                        is ClientRequestException -> {
-                            when(error.response.status.value) {
-                                404 -> return@post call.respond(HttpStatusCode.NotFound)
-                                409 -> return@post call.respond(HttpStatusCode.Conflict, ResponseDTO(ResponseStatus.Conflict.value))
-                                500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                val result = client.post<String>(request.dbUrl, request.body ?: {}, call) ?: return@post
 
-                                else -> log.error(error.toString())
-                            }
-                        }
-                        is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
-
-                        else -> log.error(error.toString())
-                    }
-
-                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                }
                 /** - END основного запроса к БД - */
 
                 /** возврат результата */
@@ -174,24 +146,8 @@ fun Application.webServerModule() {
             post("/login") {
                 val authDTO = call.receive<AuthDTO>()
 
-                val userJSON = try {
-                    val routeLogin = environment.config.property("routesDB.login").getString()
-                    requestClientPost(routeLogin, Gson().toJson(authDTO), client)
-                } catch (error: Throwable) {
-                    when(error) {
-                        is ClientRequestException -> {
-                            when(error.response.status.value) {
-                                401 -> return@post call.respond(HttpStatusCode.Unauthorized)
-                                500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
-                            }
-                        }
-                        is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
-
-                        else -> log.error(error.toString())
-                    }
-
-                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                }
+                val routeLogin = environment.config.property("routesDB.login").getString()
+                val userJSON = client.post<String>(routeLogin, authDTO, call) ?: return@post
 
                 // JWT
                 val secret = environment.config.property("jwt.secret").getString()
@@ -208,36 +164,20 @@ fun Application.webServerModule() {
                     call.receive<RequestFromWebServerSendNotificationDTO>().copy()
                 } catch (error: Exception) {
                     log.error(error.toString())
-                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
+                    return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
                 }
 
-                val templateJSON = try { // шаблон нотификации
-                    val routeTemplateEmailGet = environment.config.property("routesDB.templateEmailGet").getString()
-
-                    when(notification.type) {
-                        TypeNotification.EMAIL -> requestClientPost(routeTemplateEmailGet, "{\"name\":\"${notification.templateName}\"}", client)
-
-                        else -> return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                    }
-                } catch (error: Throwable) {
-                    when(error) {
-                        is ClientRequestException -> {
-                            when(error.response.status.value) {
-                                401 -> return@post call.respond(HttpStatusCode.Unauthorized)
-                                500 -> return@post call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
-                            }
-                        }
-                        is ConnectException -> return@post call.respond(HttpStatusCode.ServiceUnavailable, ResponseDTO(ResponseStatus.ServiceUnavailable.value))
-
-                        else -> log.error("Unhandled Error: $error")
-                    }
-
-                    return@post call.respond(HttpStatusCode.BadRequest, ResponseDTO(ResponseStatus.NoValidate.value))
-                }
-
-                // templateJSON != null
                 val templateDTO = when(notification.type) {
-                    TypeNotification.EMAIL -> Gson().fromJson(templateJSON, TemplateEmailRepositoryDTO::class.java)
+                    TypeNotification.EMAIL -> {
+                        val routeTemplateEmailGet = environment.config.property("routesDB.templateEmailGet").getString()
+                        val templateEmailRepositoryDTOJSON = client
+                            .post<String>(routeTemplateEmailGet, TemplateEmailGetDTO(notification.templateName), call)
+                                ?: return@post
+
+                        Gson().fromJson(templateEmailRepositoryDTOJSON, TemplateEmailRepositoryDTO::class.java)
+                    }
+
+                    else -> return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
                 }
 
                 // формирование объекта для отправки в rabbit
@@ -254,29 +194,9 @@ fun Application.webServerModule() {
                 if (RabbitMQ.sendNotification(json)) {
                     call.respond(HttpStatusCode.OK)
                 } else {
-                    call.respond(HttpStatusCode.InternalServerError, ResponseDTO(ResponseStatus.InternalServerError.value))
+                    call.respond(HttpStatusCode.InternalServerError, ResponseStatusDTO(ResponseStatus.InternalServerError.value))
                 }
             }
         }
-    }
-}
-
-suspend fun requestClientGet(path: String, client: HttpClient): String {
-    return client.get {
-        url {
-            encodedPath = path
-        }
-    }
-}
-
-suspend fun requestClientPost(path: String, requestBody: String, client: HttpClient): String {
-    return client.post {
-        url {
-            encodedPath = path
-        }
-
-        contentType(ContentType.Application.Json)
-
-        body = requestBody
     }
 }
