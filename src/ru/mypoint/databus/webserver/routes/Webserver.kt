@@ -42,8 +42,8 @@ fun Application.webServerModule() {
             }
 
             install(JsonFeature) {
-//                serializer = GsonSerializer {
-//                }
+                serializer = GsonSerializer {
+                }
             }
         }
     }
@@ -94,12 +94,12 @@ fun Application.webServerModule() {
 
                     /** проверка на блокировку */
                     val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
-                    val userRepositoryJSON =
+                    val userRepository =
                         client
-                            .post<String>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
+                            .post<UserRepositoryDTO>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
                                 ?: return@post
 
-                    val userRepository = Gson().fromJson(userRepositoryJSON, UserRepositoryDTO::class.java)
+//                    val userRepository = Gson().fromJson(userRepositoryJSON, UserRepositoryDTO::class.java)
                     /**
                      * логика по проверке доступа
                      * проверка блокировок
@@ -169,11 +169,10 @@ fun Application.webServerModule() {
                 val templateDTO = when(notification.type) {
                     TypeNotification.EMAIL -> {
                         val routeTemplateEmailGet = environment.config.property("routesDB.templateEmailGet").getString()
-                        val templateEmailRepositoryDTOJSON = client
-                            .post<String>(routeTemplateEmailGet, TemplateEmailGetDTO(notification.templateName), call)
-                                ?: return@post
 
-                        Gson().fromJson(templateEmailRepositoryDTOJSON, TemplateEmailRepositoryDTO::class.java)
+                        client
+                            .post<TemplateEmailRepositoryDTO>(routeTemplateEmailGet, TemplateEmailGetDTO(notification.templateName), call)
+                                ?: return@post
                     }
 
                     else -> return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
