@@ -41,12 +41,14 @@ class CreateDataBusClient() {
                                 HttpStatusCode.BadRequest,
                                 ResponseStatusDTO(ResponseStatus.BadRequest.value)
                             )
+                            return null
                         }
                         401 -> {
                             call.respond(
                                 HttpStatusCode.Unauthorized,
                                 ResponseStatusDTO(ResponseStatus.Unauthorized.value)
                             )
+                            return null
                         }
                         404 -> {
                             call.respond(HttpStatusCode.NotFound)

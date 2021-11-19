@@ -134,19 +134,19 @@ fun Application.webServerModule() {
                 /** - END AUTH - */
 
                 /** - START основного запроса к БД - */
-                val result = client.post<String>(request.dbUrl, request.body ?: {}, call) ?: return@post
+                val result = client.post<String>(request.dbUrl, request.body ?: {}, call)
 
                 /** - END основного запроса к БД - */
 
                 /** возврат результата */
-                call.respond(HttpStatusCode.OK, result)
+                if (result != null) call.respond(HttpStatusCode.OK, result)
             }
 
             post("/login") {
                 val authDTO = call.receive<AuthDTO>()
 
                 val routeLogin = environment.config.property("routesDB.login").getString()
-                val userJSON = client.post<String>(routeLogin, authDTO, call) ?: return@post
+                val userJSON = client.post<String>(routeLogin, authDTO, call)
 
                 // JWT
                 val secret = environment.config.property("jwt.secret").getString()
@@ -155,7 +155,7 @@ fun Application.webServerModule() {
                     .withExpiresAt(Date(System.currentTimeMillis() + 2592000000)) // 30 days
                     .sign(Algorithm.HMAC256(secret))
 
-                call.respond(HttpStatusCode.OK, mapOf("user" to userJSON, "token" to jwt))
+                if (userJSON != null) call.respond(HttpStatusCode.OK, mapOf("user" to userJSON, "token" to jwt))
             }
 
             post("/send/notification") {
