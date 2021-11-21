@@ -178,7 +178,14 @@ fun Application.webServerModule() {
                     else -> return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
                 }
 
-                // формирование объекта для отправки в rabbit
+                /** проверка emails на существование */
+                val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
+                notification.recipients
+                    .forEach { email ->
+                        client.post<String>(routeGetUsers, UserGetDTO(email), call) ?: return@post
+                    }
+
+                /** формирование объекта для отправки в rabbit */
                 val sendNotificationDTO = SendNotificationToRabbitDTO(
                     type = notification.type,
                     recipients = notification.recipients,
