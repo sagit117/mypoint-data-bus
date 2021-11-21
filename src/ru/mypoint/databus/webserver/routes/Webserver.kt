@@ -180,15 +180,15 @@ fun Application.webServerModule() {
 
                 /** проверка emails на существование */
                 val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
-                notification.recipients
-                    .forEach { email ->
-                        client.post<String>(routeGetUsers, UserGetDTO(email), call) ?: return@post
+                val checkedRecipients = notification.recipients
+                    .filter { email ->
+                        client.post<String>(routeGetUsers, UserGetDTO(email), call) != null
                     }
 
                 /** формирование объекта для отправки в rabbit */
                 val sendNotificationDTO = SendNotificationToRabbitDTO(
                     type = notification.type,
-                    recipients = notification.recipients,
+                    recipients = checkedRecipients.toSet(),
                     template = templateDTO.template,
                     subject = templateDTO.subject,
                     altMsgText = templateDTO.altMsgText
