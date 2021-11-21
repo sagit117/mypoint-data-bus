@@ -19,6 +19,7 @@ import ru.mypoint.databus.auth.dto.AuthDTO
 import ru.mypoint.databus.auth.dto.UserGetDTO
 import ru.mypoint.databus.auth.dto.UserRepositoryDTO
 import ru.mypoint.databus.auth.dto.UserVerifyDTO
+import ru.mypoint.databus.commons.toMap
 import ru.mypoint.databus.connectors.RabbitMQ
 import ru.mypoint.databus.notification.dto.*
 import ru.mypoint.databus.webserver.createDataBusClient
@@ -185,13 +186,35 @@ fun Application.webServerModule() {
                         client.post<String>(routeGetUsers, UserGetDTO(email), call) != null
                     }
 
+                if (checkedRecipients.isEmpty()) return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
+
+                /** транспиляция сообщения */
+                val payloads = try {
+                    notification.payloads?.toMap()
+                } catch (error: Throwable) {
+                    log.error(error.localizedMessage)
+                    null
+                }
+
+                var newTemplate = templateDTO.template
+                var newAltMsgText = templateDTO.altMsgText
+                var newSubject = templateDTO.subject
+
+                payloads?.keys?.forEach { key ->
+                    payloads[key]?.let { value ->
+                        newTemplate = newTemplate.replace("{{$key}}", value)
+                        newAltMsgText = newAltMsgText.replace("{{$key}}", value)
+                        newSubject = newSubject.replace("{{$key}}", value)
+                    }
+                }
+
                 /** формирование объекта для отправки в rabbit */
                 val sendNotificationDTO = SendNotificationToRabbitDTO(
                     type = notification.type,
                     recipients = checkedRecipients.toSet(),
-                    template = templateDTO.template,
-                    subject = templateDTO.subject,
-                    altMsgText = templateDTO.altMsgText
+                    template = newTemplate,
+                    subject = newSubject,
+                    altMsgText = newAltMsgText
                 )
 
                 val json = Gson().toJson(sendNotificationDTO)
