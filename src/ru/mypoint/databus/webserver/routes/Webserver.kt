@@ -64,7 +64,6 @@ fun Application.webServerModule() {
 
                     null
                 }
-
                 val token = request.authToken
 
                 /**
@@ -87,6 +86,7 @@ fun Application.webServerModule() {
                         jwtVerifier.verify(token)
                     } catch (error: Exception) {
                         /** если ошибка проверки токена */
+                        log.warn("Token Is Error")
                         return@post call.respond(HttpStatusCode.Unauthorized)
                     }
 
@@ -100,7 +100,6 @@ fun Application.webServerModule() {
                             .post<UserRepositoryDTO>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
                                 ?: return@post
 
-//                    val userRepository = Gson().fromJson(userRepositoryJSON, UserRepositoryDTO::class.java)
                     /**
                      * логика по проверке доступа
                      * проверка блокировок
@@ -145,15 +144,14 @@ fun Application.webServerModule() {
 
             post("/login") {
                 val authDTO = call.receive<AuthDTO>()
-
                 val routeLogin = environment.config.property("routesDB.login").getString()
                 val userJSON = client.post<String>(routeLogin, authDTO, call)
-
-                // JWT
+                val withExpiresAt = environment.config.property("jwt.withExpiresAt").getString() ?: "2_592_000_000L"
                 val secret = environment.config.property("jwt.secret").getString()
+
                 val jwt = JWT.create()
                     .withClaim("user", userJSON)
-                    .withExpiresAt(Date(System.currentTimeMillis() + 2592000000)) // 30 days
+                    .withExpiresAt(Date(System.currentTimeMillis() + withExpiresAt.toLong()))
                     .sign(Algorithm.HMAC256(secret))
 
                 if (userJSON != null) call.respond(HttpStatusCode.OK, mapOf("user" to userJSON, "token" to jwt))
