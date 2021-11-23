@@ -194,6 +194,7 @@ fun Application.webServerModule() {
                     null
                 }
 
+                /** зменение шаблона под переменные */
                 var newTemplate = templateDTO.template
                 var newAltMsgText = templateDTO.altMsgText
                 var newSubject = templateDTO.subject
