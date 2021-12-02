@@ -21,7 +21,6 @@ import ru.mypoint.databus.auth.dto.*
 import ru.mypoint.databus.commons.toMap
 import ru.mypoint.databus.connectors.RabbitMQ
 import ru.mypoint.databus.notification.dto.*
-import ru.mypoint.databus.webserver.CreateDataBusClient
 import ru.mypoint.databus.webserver.createDataBusClient
 import java.util.*
 
