@@ -14,14 +14,14 @@ import io.ktor.util.*
 import ru.mypoint.databus.webserver.dto.*
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.auth0.jwt.interfaces.DecodedJWT
 import io.ktor.client.features.json.*
-import ru.mypoint.databus.auth.dto.AuthDTO
-import ru.mypoint.databus.auth.dto.UserGetDTO
-import ru.mypoint.databus.auth.dto.UserRepositoryDTO
-import ru.mypoint.databus.auth.dto.UserVerifyDTO
+import org.slf4j.Logger
+import ru.mypoint.databus.auth.dto.*
 import ru.mypoint.databus.commons.toMap
 import ru.mypoint.databus.connectors.RabbitMQ
 import ru.mypoint.databus.notification.dto.*
+import ru.mypoint.databus.webserver.CreateDataBusClient
 import ru.mypoint.databus.webserver.createDataBusClient
 import java.util.*
 
@@ -51,19 +51,56 @@ fun Application.webServerModule() {
 
     routing {
         route("/webserver") {
+            post("/check/access") {
+                val checkAccessWithTokenDTO = call.receive<CheckAccessWithTokenDTO>()
+                val roleAccessList = getRoleAccessList(checkAccessWithTokenDTO.url, environment, log)
+                val token = checkAccessWithTokenDTO.token
+
+                /**
+                 * Условие построено так, выход из условия,
+                 * либо проверка пройдена или не проводилась,
+                 * либо получаем response и дальше не идем
+                 */
+                if (roleAccessList != null && roleAccessList.isNotEmpty() && token == null) {
+                    /** Если права прописаны, но токена нет - не пускаем */
+                    return@post call.respond(HttpStatusCode.Unauthorized)
+                } else if (roleAccessList != null && roleAccessList.isNotEmpty()) {
+                    /**
+                     * Если права прописаны и токен есть - проверяем токен
+                     * Проверяем валидность токена, но не данных внутри
+                     */
+                    val verifierToken = checkToken(environment, token ?: "", log) ?: return@post call.respond(HttpStatusCode.Unauthorized)
+
+                    /** Проверяем данные внутри токена */
+                    val jsonUserFromToken = verifierToken.getClaim("user").asString()
+                    val userVerifyDTO = Gson().fromJson(jsonUserFromToken, UserVerifyDTO::class.java)
+
+                    /** Проверка на блокировку */
+                    val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
+                    val userRepository =
+                        client
+                            .post<UserRepositoryDTO>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
+                                ?: return@post call.respond(HttpStatusCode.Unauthorized)
+
+                    /** Логика по проверке доступа и проверка блокировок */
+                    if (userRepository.isNeedsPassword || userRepository.isBlocked || userRepository.hashCode != userVerifyDTO?.hashCode) {
+                        return@post call.respond(HttpStatusCode.Unauthorized)
+                    }
+
+                    /** Проверяем пересечения по ролям */
+                    if (!checkSelfAccess(userRepository, roleAccessList, checkAccessWithTokenDTO.body.toString(), log)) {
+                        return@post call.respond(HttpStatusCode.Unauthorized)
+                    }
+                }
+
+                call.respond(HttpStatusCode.OK, mapOf("status" to "OK"))
+            }
+
             post("/dbservice/request") {
                 val request = call.receive<RequestWebServer>()
 
                 /** - START AUTH - */
-                val roleAccessList = try { // получаем список ролей для доступа к end point
-                    val (url, _) = request.dbUrl.split("?")
-
-                    environment.config.propertyOrNull("security.realm" + url.replace("/", "."))?.getList()
-                } catch (error: Exception) {
-                    log.error(error.message)
-
-                    null
-                }
+                val roleAccessList = getRoleAccessList(request.dbUrl, environment, log)
                 val token = request.authToken
 
                 /**
@@ -72,61 +109,33 @@ fun Application.webServerModule() {
                  * либо получаем response и дальше не идем
                  */
                 if (roleAccessList != null && roleAccessList.isNotEmpty() && token == null) {
-                    /** если права прописаны, но токена нет - не пускаем */
+                    /** Если права прописаны, но токена нет - не пускаем */
                     return@post call.respond(HttpStatusCode.Unauthorized)
                 } else if (roleAccessList != null && roleAccessList.isNotEmpty()) {
-                    /** если права прописаны и токен есть - проверяем токен */
-                    val secret = environment.config.property("jwt.secret").getString()
+                    /**
+                     * Если права прописаны и токен есть - проверяем токен
+                     * Проверяем валидность токена, но не данных внутри
+                     */
+                    val verifierToken = checkToken(environment, token ?: "", log) ?: return@post call.respond(HttpStatusCode.Unauthorized)
 
-                    val jwtVerifier = JWT
-                        .require(Algorithm.HMAC256(secret))
-                        .build()
-
-                    val verifierToken = try {
-                        jwtVerifier.verify(token)
-                    } catch (error: Exception) {
-                        /** если ошибка проверки токена */
-                        log.warn("Token Is Error")
-                        return@post call.respond(HttpStatusCode.Unauthorized)
-                    }
-
+                    /** Проверяем данные внутри токена */
                     val jsonUserFromToken = verifierToken.getClaim("user").asString()
                     val userVerifyDTO = Gson().fromJson(jsonUserFromToken, UserVerifyDTO::class.java)
 
-                    /** проверка на блокировку */
+                    /** Проверка на блокировку */
                     val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
                     val userRepository =
                         client
                             .post<UserRepositoryDTO>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
-                                ?: return@post
+                                ?: return@post call.respond(HttpStatusCode.Unauthorized)
 
-                    /**
-                     * логика по проверке доступа
-                     * проверка блокировок
-                     */
-                    if (!userRepository.isNeedsPassword && !userRepository.isBlocked) {
-                        /** проверка хэш-кода */
-                        if (userRepository.hashCode != userVerifyDTO?.hashCode) {
-                            return@post call.respond(HttpStatusCode.Unauthorized)
-                        }
+                    /** Логика по проверке доступа и проверка блокировок */
+                    if (userRepository.isNeedsPassword || userRepository.isBlocked || userRepository.hashCode != userVerifyDTO?.hashCode) {
+                        return@post call.respond(HttpStatusCode.Unauthorized)
+                    }
 
-                        /** проверяем пересечения по ролям */
-                        if (userRepository.roles.intersect(roleAccessList).isEmpty()) {
-                            if (roleAccessList.contains("Self")) {
-                                /** проверяем доступ по Self */
-                                val requestBodyDTO = Gson().fromJson(request.body.toString(), RequestBodyDTO::class.java)
-
-                                if (userRepository.email != requestBodyDTO.email) {
-                                    /** не Self запрос */
-                                    log.warn("No Self Request!")
-                                    return@post call.respond(HttpStatusCode.Unauthorized)
-                                }
-                            } else {
-                                /** у пользователя нет нужных ролей и нет доступа по Self */
-                                return@post call.respond(HttpStatusCode.Unauthorized)
-                            }
-                        }
-                    } else {
+                    /** Проверяем пересечения по ролям */
+                    if (!checkSelfAccess(userRepository, roleAccessList, request.body.toString(), log)) {
                         return@post call.respond(HttpStatusCode.Unauthorized)
                     }
                 }
@@ -226,4 +235,56 @@ fun Application.webServerModule() {
             }
         }
     }
+}
+
+/** Получаем список ролей для доступа к end point */
+fun getRoleAccessList(urlRequest: String, environment: ApplicationEnvironment, log: Logger): List<String>? {
+    return try {
+        val (url, _) = urlRequest.split("?")
+
+        environment.config.propertyOrNull("security.realm" + url.replace("/", "."))?.getList()
+    } catch (error: Exception) {
+        log.error(error.message)
+
+        null
+    }
+}
+
+/** Проверяем валидность токена, но не данных внутри */
+fun checkToken(environment: ApplicationEnvironment, token: String, log: Logger): DecodedJWT? {
+    val secret = environment.config.property("jwt.secret").getString()
+
+    val jwtVerifier = JWT
+        .require(Algorithm.HMAC256(secret))
+        .build()
+
+    return try {
+        jwtVerifier.verify(token)
+    } catch (error: Exception) {
+        /** Если ошибка проверки токена */
+        log.warn("Token Is Error: " + error.message)
+        null
+    }
+}
+
+/** Проверяем пересечения по ролям */
+fun checkSelfAccess(userRepository: UserRepositoryDTO, roleAccessList: List<String>, body: String, log: Logger): Boolean {
+    if (userRepository.roles.intersect(roleAccessList.toSet()).isEmpty()) {
+        if (roleAccessList.contains("Self")) {
+            /** Проверяем доступ по Self */
+            val requestBodyDTO =
+                Gson().fromJson(body, RequestBodyDTO::class.java)
+
+            if (userRepository.email != requestBodyDTO.email) {
+                /** не Self запрос */
+                log.warn("No Self Request!")
+                return false
+            }
+        } else {
+            /** У пользователя нет нужных ролей и нет доступа по Self */
+            return false
+        }
+    }
+
+    return true
 }
