@@ -151,7 +151,7 @@ fun Application.webServerModule() {
                     else -> return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
                 }
 
-                /** проверка emails на существование */
+                /** Проверка emails на существование */
                 val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
                 val checkedRecipients = notification.recipients
                     .filter { email ->
@@ -160,7 +160,7 @@ fun Application.webServerModule() {
 
                 if (checkedRecipients.isEmpty()) return@post call.respond(HttpStatusCode.BadRequest, ResponseStatusDTO(ResponseStatus.NoValidate.value))
 
-                /** транспиляция сообщения */
+                /** Транспиляция сообщения */
                 val payloads = try {
                     notification.payloads?.toMap()
                 } catch (error: Throwable) {
@@ -168,7 +168,7 @@ fun Application.webServerModule() {
                     null
                 }
 
-                /** зменение шаблона под переменные */
+                /** Зменение шаблона под переменные */
                 var newTemplate = templateDTO.template
                 var newAltMsgText = templateDTO.altMsgText
                 var newSubject = templateDTO.subject
@@ -181,7 +181,7 @@ fun Application.webServerModule() {
                     }
                 }
 
-                /** формирование объекта для отправки в rabbit */
+                /** Формирование объекта для отправки в rabbit */
                 val sendNotificationDTO = SendNotificationToRabbitDTO(
                     type = notification.type,
                     recipients = checkedRecipients.toSet(),
@@ -193,7 +193,7 @@ fun Application.webServerModule() {
                 val json = Gson().toJson(sendNotificationDTO)
 
                 if (RabbitMQ.sendNotification(json)) {
-                    call.respond(HttpStatusCode.OK)
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "OK"))
                 } else {
                     call.respond(HttpStatusCode.InternalServerError, ResponseStatusDTO(ResponseStatus.InternalServerError.value))
                 }
