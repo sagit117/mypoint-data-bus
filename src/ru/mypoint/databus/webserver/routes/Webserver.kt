@@ -26,7 +26,7 @@ import java.util.*
 
 @Suppress("unused") // Referenced in application.conf
 fun Application.webServerModule() {
-    /** настройки по умолчанию для запроса как клиент */
+    /** Настройки по умолчанию для запроса как клиент */
     val client = createDataBusClient {
         logger = log
         httpClient = HttpClient(CIO) {
@@ -112,7 +112,7 @@ fun Application.webServerModule() {
 
                 /** - END основного запроса к БД - */
 
-                /** возврат результата */
+                /** Возврат результата */
                 if (result != null) call.respond(HttpStatusCode.OK, result)
             }
 
@@ -168,7 +168,7 @@ fun Application.webServerModule() {
                     null
                 }
 
-                /** Зменение шаблона под переменные */
+                /** Изменение шаблона под переменные */
                 var newTemplate = templateDTO.template
                 var newAltMsgText = templateDTO.altMsgText
                 var newSubject = templateDTO.subject
