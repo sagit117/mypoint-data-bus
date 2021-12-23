@@ -64,7 +64,7 @@ fun Application.webServerModule() {
             val userVerifyDTO = Gson().fromJson(jsonUserFromToken, UserVerifyDTO::class.java)
 
             /** Проверка на блокировку */
-            val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
+            val routeGetUsers = environment.config.property("routesDB.getUser").getString()
             val userRepository =
                 client
                     .post<UserRepositoryDTO>(routeGetUsers, UserGetDTO(userVerifyDTO.email), call)
