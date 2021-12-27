@@ -152,7 +152,7 @@ fun Application.webServerModule() {
                 }
 
                 /** Проверка emails на существование */
-                val routeGetUsers = environment.config.property("routesDB.getUsers").getString()
+                val routeGetUsers = environment.config.property("routesDB.getUser").getString()
                 val checkedRecipients = notification.recipients
                     .filter { email ->
                         client.post<String>(routeGetUsers, UserGetDTO(email), call) != null
