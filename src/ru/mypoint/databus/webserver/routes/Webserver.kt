@@ -16,6 +16,7 @@ import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.interfaces.DecodedJWT
 import io.ktor.client.features.json.*
+import io.ktor.server.engine.*
 import org.slf4j.Logger
 import ru.mypoint.databus.auth.dto.*
 import ru.mypoint.databus.commons.toMap
@@ -104,7 +105,14 @@ fun Application.webServerModule() {
                 val token = request.authToken
 
                 if (!checkAccess(roleAccessList, token, call, request.body.toString())) {
-                    return@post call.respond(HttpStatusCode.Unauthorized)
+                    try {
+                        return@post call.respond(HttpStatusCode.Unauthorized)
+                    } catch (error: Throwable) {
+                        when (error) {
+                            is BaseApplicationResponse.ResponseAlreadySentException -> return@post
+                            else -> log.error(error)
+                        }
+                    }
                 }
 
                 /** - START основного запроса к БД - */

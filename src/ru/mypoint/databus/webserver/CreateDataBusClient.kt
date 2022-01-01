@@ -68,6 +68,13 @@ class CreateDataBusClient() {
                             )
                             return null
                         }
+                        503 -> {
+                            call.respond(
+                                HttpStatusCode.ServiceUnavailable,
+                                ResponseStatusDTO(ResponseStatus.ServiceUnavailable.value)
+                            )
+                            return null
+                        }
 
                         else -> logger.error(error.toString())
                     }
