@@ -93,7 +93,14 @@ fun Application.webServerModule() {
                 val token = checkAccessWithTokenDTO.token
 
                 if (!checkAccess(roleAccessList, token, call, checkAccessWithTokenDTO.body.toString())) {
-                    return@post call.respond(HttpStatusCode.Unauthorized)
+                    try {
+                        return@post call.respond(HttpStatusCode.Unauthorized)
+                    } catch (error: Throwable) {
+                        when (error) {
+                            is BaseApplicationResponse.ResponseAlreadySentException -> return@post
+                            else -> log.error(error)
+                        }
+                    }
                 }
 
                 call.respond(HttpStatusCode.OK, mapOf("status" to "OK"))
